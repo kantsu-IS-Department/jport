@@ -1,0 +1,492 @@
+import React, { useState, useMemo } from 'react';
+import { Calculator, LayoutDashboard, FileText, Settings, Plus, Search, Trash2, Save, CreditCard, DollarSign, Calendar, Clock, BarChart3, Smartphone, Wallet } from 'lucide-react';
+
+// --- 型定義 ---
+type PaymentMethod = 'CASH' | 'CREDIT' | 'PAYPAY' | 'ADVANCE' | 'INVOICE';
+
+type SalesDetail = {
+  id: string;
+  productCode: string;
+  productName: string;
+  isVolumeCalc: boolean;
+  length?: number;
+  width?: number;
+  height?: number;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+  tax: number;
+};
+
+type SalesRecord = {
+  id: string;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:mm
+  customerName: string;
+  factory: string;
+  handler: string;
+  paymentType: PaymentMethod;
+  details: SalesDetail[];
+  totalAmount: number;
+  totalTax: number;
+  grandTotal: number;
+  timestamp: Date; // ソート・集計用
+};
+
+// --- ダミーデータ ---
+const PRODUCTS = [
+  { code: '1001', name: '混合廃棄物', unitPrice: 12000, isVolumeCalc: true },
+  { code: '1002', name: '木くず', unitPrice: 8000, isVolumeCalc: true },
+  { code: '1003', name: '石膏ボード', unitPrice: 15000, isVolumeCalc: true },
+  { code: '2001', name: '運搬費', unitPrice: 5000, isVolumeCalc: false },
+  { code: '9001', name: 'その他', unitPrice: 0, isVolumeCalc: false },
+];
+
+const FACTORIES = ['本社工場', '第2工場', '此花工場'];
+const HANDLERS = ['建部', '塩見', '山田', '鈴木'];
+
+const PAYMENT_LABELS: Record<PaymentMethod, { label: string; color: string; icon: any }> = {
+  CASH: { label: '現金', color: 'bg-orange-500 text-white border-orange-600', icon: Wallet },
+  CREDIT: { label: 'カード', color: 'bg-indigo-500 text-white border-indigo-600', icon: CreditCard },
+  PAYPAY: { label: 'PayPay', color: 'bg-red-500 text-white border-red-600', icon: Smartphone },
+  ADVANCE: { label: '事前精算', color: 'bg-teal-500 text-white border-teal-600', icon: FileText },
+  INVOICE: { label: '掛売', color: 'bg-blue-600 text-white border-blue-700', icon: FileText },
+};
+
+// --- メインコンポーネント ---
+export default function App() {
+  const [activeTab, setActiveTab] = useState<'INPUT' | 'LIST'>('INPUT');
+  const [notification, setNotification] = useState<string | null>(null);
+
+  // 初期データ生成
+  const generateInitialData = (): SalesRecord[] => {
+    const today = new Date().toISOString().split('T')[0];
+    return [
+      {
+        id: 'S001', date: today, time: '09:15', customerName: '山田建設', factory: '本社工場', handler: '建部', paymentType: 'CASH',
+        details: [{ id: 'd1', productCode: '1001', productName: '混合廃棄物', isVolumeCalc: true, quantity: 2.5, unitPrice: 12000, amount: 30000, tax: 3000 }],
+        totalAmount: 30000, totalTax: 3000, grandTotal: 33000, timestamp: new Date(`${today}T09:15:00`)
+      },
+      {
+        id: 'S002', date: today, time: '10:05', customerName: '大阪リフォーム', factory: '本社工場', handler: '塩見', paymentType: 'INVOICE',
+        details: [{ id: 'd2', productCode: '1002', productName: '木くず', isVolumeCalc: true, quantity: 1.2, unitPrice: 8000, amount: 9600, tax: 960 }],
+        totalAmount: 9600, totalTax: 960, grandTotal: 10560, timestamp: new Date(`${today}T10:05:00`)
+      },
+      {
+        id: 'S003', date: today, time: '10:45', customerName: '鈴木工務店', factory: '本社工場', handler: '山田', paymentType: 'PAYPAY',
+        details: [{ id: 'd3', productCode: '1003', productName: '石膏ボード', isVolumeCalc: true, quantity: 0.5, unitPrice: 15000, amount: 7500, tax: 750 }],
+        totalAmount: 7500, totalTax: 750, grandTotal: 8250, timestamp: new Date(`${today}T10:45:00`)
+      },
+      {
+        id: 'S004', date: today, time: '11:20', customerName: '佐藤解体', factory: '本社工場', handler: '建部', paymentType: 'CASH',
+        details: [{ id: 'd4', productCode: '1001', productName: '混合廃棄物', isVolumeCalc: true, quantity: 4.0, unitPrice: 12000, amount: 48000, tax: 4800 }],
+        totalAmount: 48000, totalTax: 4800, grandTotal: 52800, timestamp: new Date(`${today}T11:20:00`)
+      },
+    ];
+  };
+
+  const [salesHistory, setSalesHistory] = useState<SalesRecord[]>(generateInitialData());
+
+  const showNotification = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  const handleSave = (record: SalesRecord) => {
+    setSalesHistory([record, ...salesHistory]);
+    showNotification('売上データを保存しました');
+    setActiveTab('LIST');
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-100 font-sans text-gray-800 overflow-hidden">
+      {/* サイドバー */}
+      <aside className="w-64 bg-slate-800 text-white flex-shrink-0 flex flex-col">
+        <div className="p-4 border-b border-slate-700">
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <LayoutDashboard className="text-blue-400" />
+            J-PORT Sales
+          </h1>
+          <p className="text-xs text-slate-400 mt-1">SMILE Cloud Migration</p>
+        </div>
+        <nav className="flex-1 p-4 space-y-2">
+          <button
+            onClick={() => setActiveTab('INPUT')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+              activeTab === 'INPUT' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            <Calculator size={20} />
+            <span className="font-medium">売上入力 (受付)</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('LIST')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+              activeTab === 'LIST' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            <BarChart3 size={20} />
+            <span className="font-medium">照合・集計</span>
+          </button>
+          <div className="pt-4 pb-2 text-xs font-bold text-slate-500 uppercase tracking-wider">Other</div>
+          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-slate-300 hover:bg-slate-700">
+            <FileText size={20} />
+            <span className="font-medium">請求データ出力</span>
+          </button>
+          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-slate-300 hover:bg-slate-700">
+            <Settings size={20} />
+            <span className="font-medium">マスタ設定</span>
+          </button>
+        </nav>
+      </aside>
+
+      {/* メインコンテンツ */}
+      <main className="flex-1 overflow-hidden bg-gray-50 relative flex flex-col">
+        {notification && (
+          <div className="absolute top-4 right-4 bg-emerald-500 text-white px-6 py-3 rounded shadow-lg z-50 animate-bounce">
+            {notification}
+          </div>
+        )}
+
+        {activeTab === 'INPUT' ? (
+          <InputScreen onSave={handleSave} />
+        ) : (
+          <ListScreen history={salesHistory} />
+        )}
+      </main>
+    </div>
+  );
+}
+
+// --- コンポーネント: 入力画面 ---
+function InputScreen({ onSave }: { onSave: (record: SalesRecord) => void }) {
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [time, setTime] = useState(new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
+  const [factory, setFactory] = useState(FACTORIES[0]);
+  const [customer, setCustomer] = useState('');
+  const [handler, setHandler] = useState(HANDLERS[0]);
+  const [paymentType, setPaymentType] = useState<PaymentMethod>('CASH');
+
+  const [rows, setRows] = useState<SalesDetail[]>([createNewRow()]);
+
+  function createNewRow(): SalesDetail {
+    return {
+      id: Math.random().toString(36).substr(2, 9),
+      productCode: '',
+      productName: '',
+      isVolumeCalc: false,
+      length: 0, width: 0, height: 0, quantity: 0, unitPrice: 0, amount: 0, tax: 0,
+    };
+  }
+
+  const handleProductChange = (index: number, code: string) => {
+    const product = PRODUCTS.find((p) => p.code === code);
+    if (!product) return;
+    const newRows = [...rows];
+    newRows[index] = {
+      ...newRows[index], productCode: product.code, productName: product.name, unitPrice: product.unitPrice, isVolumeCalc: product.isVolumeCalc,
+      quantity: product.isVolumeCalc ? 0 : 1, length: 0, width: 0, height: 0,
+    };
+    calculateRowAmount(newRows[index]);
+    setRows(newRows);
+  };
+
+  const handleValueChange = (index: number, field: keyof SalesDetail, value: number) => {
+    const newRows = [...rows];
+    // @ts-ignore
+    newRows[index][field] = value;
+    if (newRows[index].isVolumeCalc && (field === 'length' || field === 'width' || field === 'height')) {
+      const l = newRows[index].length || 0;
+      const w = newRows[index].width || 0;
+      const h = newRows[index].height || 0;
+      newRows[index].quantity = parseFloat((l * w * h).toFixed(3));
+    }
+    calculateRowAmount(newRows[index]);
+    setRows(newRows);
+  };
+
+  const calculateRowAmount = (row: SalesDetail) => {
+    row.amount = Math.floor(row.quantity * row.unitPrice);
+    row.tax = Math.floor(row.amount * 0.1);
+  };
+
+  const totalAmount = rows.reduce((sum, row) => sum + row.amount, 0);
+  const totalTax = rows.reduce((sum, row) => sum + row.tax, 0);
+  const grandTotal = totalAmount + totalTax;
+
+  const handleSubmit = () => {
+    if (!customer) { alert('得意先名を入力してください'); return; }
+    const record: SalesRecord = {
+      id: Math.random().toString(36).substr(2, 9),
+      date, time, customerName: customer, factory, handler, paymentType, details: rows,
+      totalAmount, totalTax, grandTotal,
+      timestamp: new Date(`${date}T${time}:00`),
+    };
+    onSave(record);
+  };
+
+  return (
+    <div className="h-full overflow-y-auto p-6">
+      <div className="max-w-5xl mx-auto space-y-6">
+        {/* 基本情報 */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+            <div className="md:col-span-3">
+              <label className="text-xs font-bold text-gray-400 uppercase">日付・時刻</label>
+              <div className="flex gap-2 mt-1">
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full border-gray-300 rounded p-2 border font-mono" />
+                <input type="time" value={time} onChange={e => setTime(e.target.value)} className="w-24 border-gray-300 rounded p-2 border font-mono" />
+              </div>
+            </div>
+            <div className="md:col-span-3">
+              <label className="text-xs font-bold text-gray-400 uppercase">工場・担当</label>
+              <div className="flex gap-2 mt-1">
+                <select value={factory} onChange={e => setFactory(e.target.value)} className="w-full border-gray-300 rounded p-2 border">
+                  {FACTORIES.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+                <select value={handler} onChange={e => setHandler(e.target.value)} className="w-full border-gray-300 rounded p-2 border">
+                  {HANDLERS.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="md:col-span-6">
+              <label className="text-xs font-bold text-gray-400 uppercase">得意先</label>
+              <div className="relative mt-1">
+                <Search className="absolute left-3 top-2.5 text-gray-400" size={18} />
+                <input type="text" placeholder="得意先名..." value={customer} onChange={e => setCustomer(e.target.value)} className="w-full pl-10 border-gray-300 rounded p-2 border" />
+              </div>
+            </div>
+          </div>
+          
+          <div className="mt-4">
+            <label className="text-xs font-bold text-gray-400 uppercase mb-2 block">支払区分</label>
+            <div className="flex flex-wrap gap-3">
+              {(Object.keys(PAYMENT_LABELS) as PaymentMethod[]).map((type) => {
+                const isSelected = paymentType === type;
+                const config = PAYMENT_LABELS[type];
+                const Icon = config.icon;
+                return (
+                  <button
+                    key={type}
+                    onClick={() => setPaymentType(type)}
+                    className={`flex items-center gap-2 px-4 py-3 rounded-lg border transition-all ${
+                      isSelected 
+                        ? `${config.color} ring-2 ring-offset-2 ring-blue-300 shadow-md transform scale-105` 
+                        : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Icon size={18} />
+                    <span className="font-bold">{config.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* 明細入力 */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+          <h3 className="text-md font-bold text-gray-700 mb-4 flex items-center gap-2">
+            <Calculator size={18} /> 明細入力 (体積計算)
+          </h3>
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead>
+              <tr className="bg-gray-50 text-xs font-medium text-gray-500 uppercase">
+                <th className="px-3 py-2 text-left w-48">商品</th>
+                <th className="px-2 py-2 w-20 text-center">縦(m)</th>
+                <th className="px-2 py-2 w-20 text-center">横(m)</th>
+                <th className="px-2 py-2 w-20 text-center">高さ(m)</th>
+                <th className="px-3 py-2 text-right w-24">数量</th>
+                <th className="px-3 py-2 text-right w-32">単価</th>
+                <th className="px-3 py-2 text-right w-32">金額</th>
+                <th className="px-3 py-2 w-10"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {rows.map((row, idx) => (
+                <tr key={row.id}>
+                  <td className="px-3 py-3">
+                    <select value={row.productCode} onChange={e => handleProductChange(idx, e.target.value)} className="w-full border-gray-300 rounded p-1 border text-sm">
+                      <option value="">選択...</option>
+                      {PRODUCTS.map(p => <option key={p.code} value={p.code}>{p.name}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-1"><input type="number" step="0.1" disabled={!row.isVolumeCalc} value={row.length || ''} onChange={e => handleValueChange(idx, 'length', parseFloat(e.target.value))} className={`w-full text-center rounded p-1 border ${row.isVolumeCalc ? 'bg-yellow-50 border-yellow-300' : 'bg-gray-100'}`} placeholder="-" /></td>
+                  <td className="px-1"><input type="number" step="0.1" disabled={!row.isVolumeCalc} value={row.width || ''} onChange={e => handleValueChange(idx, 'width', parseFloat(e.target.value))} className={`w-full text-center rounded p-1 border ${row.isVolumeCalc ? 'bg-yellow-50 border-yellow-300' : 'bg-gray-100'}`} placeholder="-" /></td>
+                  <td className="px-1"><input type="number" step="0.1" disabled={!row.isVolumeCalc} value={row.height || ''} onChange={e => handleValueChange(idx, 'height', parseFloat(e.target.value))} className={`w-full text-center rounded p-1 border ${row.isVolumeCalc ? 'bg-yellow-50 border-yellow-300' : 'bg-gray-100'}`} placeholder="-" /></td>
+                  <td className="px-3"><input type="number" value={row.quantity} readOnly={row.isVolumeCalc} onChange={e => handleValueChange(idx, 'quantity', parseFloat(e.target.value))} className="w-full text-right rounded p-1 border font-bold" /></td>
+                  <td className="px-3"><input type="number" value={row.unitPrice} onChange={e => handleValueChange(idx, 'unitPrice', parseFloat(e.target.value))} className="w-full text-right rounded p-1 border" /></td>
+                  <td className="px-3 text-right font-mono font-bold">¥{row.amount.toLocaleString()}</td>
+                  <td className="px-1 text-center"><button onClick={() => setRows(rows.filter((_, i) => i !== idx))} className="text-red-400 hover:text-red-600"><Trash2 size={16} /></button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button onClick={() => setRows([...rows, createNewRow()])} className="mt-4 flex items-center gap-2 text-blue-600 hover:text-blue-800 text-sm font-medium"><Plus size={16} /> 行を追加</button>
+        </div>
+
+        {/* 合計・保存 */}
+        <div className="flex flex-col md:flex-row justify-end items-center gap-6 pb-12">
+           <div className="text-right">
+             <p className="text-sm text-gray-500">消費税: ¥{totalTax.toLocaleString()}</p>
+             <p className="text-3xl font-bold text-blue-800">¥{grandTotal.toLocaleString()}</p>
+           </div>
+           <button onClick={handleSubmit} className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg flex items-center gap-3">
+             <Save size={24} /> 売上登録
+           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- コンポーネント: 照合・集計画面 ---
+function ListScreen({ history }: { history: SalesRecord[] }) {
+  const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+  const [filterFactory, setFilterFactory] = useState('本社工場');
+
+  const filteredData = history
+    .filter(item => item.date === filterDate && item.factory === filterFactory)
+    .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+  // --- 集計ロジック ---
+  // 1. 支払方法別集計
+  const paymentSummary = useMemo(() => {
+    const summary: Record<string, { count: number; amount: number }> = {};
+    Object.keys(PAYMENT_LABELS).forEach(key => summary[key] = { count: 0, amount: 0 });
+
+    filteredData.forEach(item => {
+      summary[item.paymentType].count += 1;
+      summary[item.paymentType].amount += item.grandTotal;
+    });
+    return summary;
+  }, [filteredData]);
+
+  // 2. 時間帯別集計 (持ち込み件数・売上の見える化)
+  const hourlySummary = useMemo(() => {
+    const hours = Array.from({ length: 10 }, (_, i) => i + 8); // 8時〜17時
+    return hours.map(hour => {
+      const itemsInHour = filteredData.filter(item => item.timestamp.getHours() === hour);
+      return {
+        hour,
+        count: itemsInHour.length,
+        amount: itemsInHour.reduce((sum, item) => sum + item.grandTotal, 0)
+      };
+    });
+  }, [filteredData]);
+
+  const totalSales = filteredData.reduce((sum, item) => sum + item.grandTotal, 0);
+
+  return (
+    <div className="flex h-full">
+      {/* 左: リストエリア (flex-grow) */}
+      <div className="flex-1 flex flex-col border-r border-gray-200 bg-white">
+        {/* ヘッダーフィルタ */}
+        <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+          <h2 className="font-bold text-gray-700 flex items-center gap-2">
+            <Search size={18} /> 売上明細リスト
+          </h2>
+          <div className="flex gap-2">
+            <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="border rounded px-2 py-1 text-sm" />
+            <select value={filterFactory} onChange={e => setFilterFactory(e.target.value)} className="border rounded px-2 py-1 text-sm">
+              {FACTORIES.map(f => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {/* 明細テーブル */}
+        <div className="flex-1 overflow-auto p-4">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-100 sticky top-0">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-bold text-gray-500">時刻</th>
+                <th className="px-4 py-2 text-left text-xs font-bold text-gray-500">得意先</th>
+                <th className="px-4 py-2 text-left text-xs font-bold text-gray-500">支払</th>
+                <th className="px-4 py-2 text-right text-xs font-bold text-gray-500">金額</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {filteredData.map(record => {
+                const pConfig = PAYMENT_LABELS[record.paymentType];
+                return (
+                  <tr key={record.id} className="hover:bg-blue-50">
+                    <td className="px-4 py-3 text-sm text-gray-500 font-mono">{record.time}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-800">{record.customerName}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${pConfig.color.split(' ')[0]} bg-opacity-10 text-${pConfig.color.split('-')[1]}-700 border border-${pConfig.color.split('-')[1]}-200`}>
+                        {pConfig.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right font-bold text-gray-900">¥{record.grandTotal.toLocaleString()}</td>
+                  </tr>
+                );
+              })}
+              {filteredData.length === 0 && <tr><td colSpan={4} className="p-8 text-center text-gray-400">データなし</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 右: 集計ダッシュボード (固定幅 350px) */}
+      <div className="w-96 bg-gray-50 overflow-y-auto border-l border-gray-200 flex flex-col">
+        <div className="p-5 border-b border-gray-200 bg-white">
+          <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-1">本日の売上合計</h3>
+          <p className="text-3xl font-bold text-gray-800">¥{totalSales.toLocaleString()}</p>
+          <p className="text-sm text-gray-500 mt-1">{filteredData.length} 件の取引</p>
+        </div>
+
+        {/* 1. 決済別レポート (現金チェック用) */}
+        <div className="p-5 border-b border-gray-200">
+          <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2 mb-4">
+            <Wallet size={16} /> 決済内訳 (レジ照合)
+          </h3>
+          <div className="space-y-3">
+            {(Object.keys(PAYMENT_LABELS) as PaymentMethod[]).map(type => {
+              const data = paymentSummary[type];
+              if (data.count === 0 && type !== 'CASH') return null; // 件数0は省略(現金以外)
+              const config = PAYMENT_LABELS[type];
+              return (
+                <div key={type} className="flex justify-between items-center p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-2 h-8 rounded ${config.color.split(' ')[0]}`}></div>
+                    <div>
+                      <p className="text-xs font-bold text-gray-500">{config.label}</p>
+                      <p className="text-xs text-gray-400">{data.count} 件</p>
+                    </div>
+                  </div>
+                  <p className="text-lg font-bold text-gray-800">¥{data.amount.toLocaleString()}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 2. 時間帯別レポート (見える化) */}
+        <div className="p-5 flex-1">
+          <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2 mb-4">
+            <Clock size={16} /> 時間帯別 受付状況
+          </h3>
+          <div className="space-y-1">
+            {hourlySummary.map(stat => {
+              // 棒グラフの長さを計算 (最大値を基準に)
+              const maxCount = Math.max(...hourlySummary.map(s => s.count)) || 1;
+              const barWidth = Math.max((stat.count / maxCount) * 100, 2); // 最低2%
+              
+              return (
+                <div key={stat.hour} className="flex items-center text-xs group hover:bg-white rounded px-1 py-1">
+                  <div className="w-10 font-mono text-gray-500 text-right pr-2">{stat.hour}:00</div>
+                  <div className="flex-1">
+                     <div className="flex items-center h-4 bg-gray-200 rounded-full overflow-hidden">
+                        <div style={{ width: `${barWidth}%` }} className={`h-full ${stat.count > 0 ? 'bg-blue-400' : 'bg-transparent'}`}></div>
+                     </div>
+                  </div>
+                  <div className="w-8 text-right font-bold text-gray-700">{stat.count > 0 ? stat.count : '-'}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
